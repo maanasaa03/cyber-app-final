@@ -122,7 +122,6 @@ app.post('/chatbot', async (req, res) => {
 });
 
 
-// Website Analysis Endpoint
 app.post('/analyze', async (req, res) => {
   const { url } = req.body;
 
@@ -131,11 +130,11 @@ app.post('/analyze', async (req, res) => {
   }
 
   try {
-    // Fetch website content (without axios)
+    // 1️⃣ Fetch Website Content
     const siteResponse = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const textContent = await siteResponse.text();
 
-    // AI-based content analysis
+    // 2️⃣ AI-Based Content Analysis
     const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -145,50 +144,91 @@ app.post('/analyze', async (req, res) => {
     });
 
     const aiData = await aiResponse.json();
-    const aiAnalysis = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis available.";
+    const aiAnalysis = aiData?.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis available.";
 
-    // Security Scoring Logic
+    // 3️⃣ Security Scoring Logic
     let securityScore = 100;
+    let checklist = {};
 
-    if (!url.startsWith('https')) securityScore -= 30; // Penalize HTTP
+    // ✅ HTTPS Check
+    checklist.https = url.startsWith('https') ? "✅ Secure (HTTPS Enabled)" : "❌ Insecure (HTTP Only)";
+    if (!url.startsWith('https')) securityScore -= 30;
 
     try {
-      // VirusTotal API Call
+      // 🔎 4️⃣ VirusTotal API Check
       const vtResponse = await fetch(`https://www.virustotal.com/api/v3/urls/${encodeURIComponent(url)}`, {
         headers: { 'x-apikey': process.env.VIRUSTOTAL_API_KEY }
       });
       const vtData = await vtResponse.json();
 
-      if (vtData?.data?.attributes?.last_analysis_stats?.malicious > 0) {
-        securityScore -= 50;
+      const maliciousCount = vtData?.data?.attributes?.last_analysis_stats?.malicious || 0;
+      const lastAnalysisResults = vtData?.data?.attributes?.last_analysis_results;
+
+      let maliciousEngines = "No threats detected";
+      if (lastAnalysisResults) {
+        maliciousEngines = Object.entries(lastAnalysisResults)
+          .filter(([_, result]) => result.category === 'malicious')
+          .map(([engine]) => engine)
+          .join(', ') || "No threats detected";
       }
+
+      checklist.virusTotal = maliciousCount === 0
+        ? "✅ No known threats"
+        : `⚠️ Detected threats: ${maliciousCount} (${maliciousEngines})`;
+      
+      if (maliciousCount > 0) securityScore -= 50;
     } catch (err) {
       console.warn('VirusTotal API Error:', err.message);
     }
 
     try {
-      // WHOIS API Call
+      // 📜 5️⃣ WHOIS API Call
       const whoisResponse = await fetch(`https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.WHOIS_API_KEY}&domainName=${url}`);
       const whoisData = await whoisResponse.json();
-      
-      const domainAge = whoisData.WhoisRecord?.createdDate;
+
+      const domainAge = whoisData?.WhoisRecord?.createdDate;
       if (domainAge) {
         const ageInYears = (new Date() - new Date(domainAge)) / (1000 * 60 * 60 * 24 * 365);
-        if (ageInYears < 1) securityScore -= 20; // Penalize new domains
+        checklist.domainAge = ageInYears >= 1 ? `✅ Established (${ageInYears.toFixed(1)} years old)` : "⚠️ New domain (<1 year old)";
+        if (ageInYears < 1) securityScore -= 20;
+      } else {
+        checklist.domainAge = "⚠️ Domain age unknown";
       }
     } catch (err) {
       console.warn('WHOIS API Error:', err.message);
     }
 
-    // AI-based risk detection
-    const riskKeywords = ["scam", "phishing", "malware", "unsafe", "low credibility", "fake", "fraud", "suspicious"];
-    if (riskKeywords.some(keyword => aiAnalysis.includes(keyword))) {
+    // 🚨 6️⃣ AI-Based Risk Detection
+    const riskKeywords = [
+      "scam", "phishing", "malware", "unsafe", "low credibility", "fake", "fraud", 
+      "suspicious", "deceptive", "identity theft", "spoofing", "impersonation", 
+      "hacked", "unverified", "blacklist", "ransomware", "social engineering"
+    ];
+    const containsRiskKeywords = riskKeywords.some(keyword => aiAnalysis.toLowerCase().includes(keyword));
+
+    checklist.contentSafety = containsRiskKeywords
+      ? "⚠️ Potential security risks detected"
+      : "✅ No immediate risks found";
+
+    if (containsRiskKeywords) {
       securityScore -= 30;
     }
 
+    // 🔒 Final Security Score Adjustments
     securityScore = Math.max(securityScore, 0); // Prevent negative scores
 
-    res.json({ securityScore, analysis: aiAnalysis });
+    // ✅ Convert checklist object into an array
+    const summaryChecklistArray = Object.entries(checklist).map(
+      ([key, value]) => `🔹 ${key}: ${value}`
+    );
+
+    // ✅ FIX: Ensure array is **never undefined**
+    res.json({
+      summaryChecklist: summaryChecklistArray || [], // 🔥 Fix applied here
+      securityScore,
+      detailedReport: aiAnalysis || "No analysis available."
+    });
+
   } catch (error) {
     console.error('Website Analysis Error:', error.message);
     res.status(500).json({ error: 'Failed to analyze website. The website may block automated requests.' });
@@ -198,6 +238,5 @@ app.post('/analyze', async (req, res) => {
 // Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
 
 

@@ -4,7 +4,7 @@
     "target": "esnext", // or "es6" if you prefer
     "module": "commonjs",
     "jsx": "react-native",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

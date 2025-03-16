@@ -5,17 +5,17 @@ import WebView from 'react-native-webview';
 const BrowserScreen = () => {
   const [url, setUrl] = useState('');
   const [finalUrl, setFinalUrl] = useState('');
-
-  const handleGo = () => {
-    if (!url.startsWith('http')) {
-      setFinalUrl(`https://${url}`);
-    } else {
-      setFinalUrl(url);
-    }
-    analyzeWebsite(url);
-  };
+  const [securityScore, setSecurityScore] = useState<number | null>(null);
+  const [checklist, setChecklist] = useState<string[]>([]);
+  const [fullAnalysis, setFullAnalysis] = useState<string | null>(null);
 
   const BACKEND_URL = 'http://192.168.0.104:5000';
+
+  const handleGo = () => {
+    const formattedUrl = url.startsWith('http') ? url : `https://${url}`;
+    setFinalUrl(formattedUrl);
+    analyzeWebsite(formattedUrl);
+  };
 
   const analyzeWebsite = async (websiteUrl: string) => {
     try {
@@ -29,12 +29,23 @@ const BrowserScreen = () => {
         throw new Error('Failed to analyze website');
       }
   
-      const { securityScore, analysis } = await response.json();
+      // ✅ Fetch the correct field from the backend response
+      const { securityScore, summaryChecklist, detailedReport } = await response.json();
+  
+      setSecurityScore(securityScore);
+      setChecklist(summaryChecklist || []); // Ensure it's always an array
+      setFullAnalysis(detailedReport);
   
       Alert.alert(
         '🔍 Website Security Analysis',
-        `🛡️ Security Score: ${securityScore}/100\n\n📋 Analysis:\n${analysis}`,
-        [{ text: 'OK' }]
+        `🛡️ Security Score: ${securityScore}/100\n\n✅ Checklist:\n${(summaryChecklist || []).join('\n')}`,
+        [
+          { text: 'OK' },
+          {
+            text: 'Show Detailed Report',
+            onPress: () => Alert.alert('📋 Full Report', detailedReport || "No report available."),
+          },
+        ]
       );
     } catch (error) {
       console.error('Error analyzing website:', error);
@@ -71,4 +82,3 @@ const styles = StyleSheet.create({
 });
 
 export default BrowserScreen;
-
